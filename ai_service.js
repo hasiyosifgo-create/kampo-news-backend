@@ -208,12 +208,12 @@ ${articleText}
 
 以下の要件を満たす情報をJSONフォーマットで出力してください。
 - category: この記事が特定の「製品情報（新発売、販売終了、自主回収、出荷調整、パッケージ・成分の変更など）」を報じている場合は "product" を、一般的なニュース（業界動向、企業の決算、人事、一般的な医療コラムなど）の場合は "news" を出力してください。
-- summary: 記事の要約（3〜4文程度）。※もし記事が漢方・生薬・医療・健康食品などと全く無関係な一般的なお菓子・日用品のニュースや、単なる企業のお問い合わせページ、会社概要、採用情報、リンク集などの場合は、\`UNRELATED\` という文字列だけを出力してください。また、詐欺サイトやスパムと思われる場合は \`SPAM\` と出力してください。
+- summary: 記事の要約（3〜4文程度）。※もし記事が「漢方」「生薬」「東洋医学」に直接関連しないニュース（例：一般的な西洋薬、風邪薬、一般的な化粧品・スキンケア・ヘアケア、単なる企業のお問い合わせページ、会社概要、採用情報、リンク集など）の場合は、必ず \`UNRELATED\` という文字列だけを出力してください。また、詐欺サイトやスパムと思われる場合も \`SPAM\` と出力してください。
 - tags: 
   - categoryが "product" と判定された場合: 「アクション（発売、終了、回収、出荷、変更のいずれか）」と「対象の企業名（またはブランド名）」の2つのみを配列で出力。（例: ["発売", "クラシエ"]）
   - categoryが "news" と判定された場合: 記事に関連する最も重要な漢方薬・生薬名、または企業名などのタグ（厳選して最大2つまで。例: ["葛根湯", "ツムラ"]）
 - topic_name: この記事が扱っている主要な「ニュースのトピック名」または「イベント名」を短い名詞句で出力（例: "〇〇湯の新発売", "ツムラの決算発表" 等）
-- published_at: 記事本文内に公開日や発表日が記載されている場合、その日付を "YYYY-MM-DD" 形式で出力（不明な場合は空文字 "" にする）
+- published_at: このニュースが「世間に配信・公開された日」を "YYYY-MM-DD" 形式で出力（※注意：新商品の「発売日」などの未来の日付は絶対に出力せず、ニュース自体の発表日を抽出してください。不明な場合は空文字 "" にする）
 `;
 
   let maxRetries = FALLBACK_MODELS.length * 2;
@@ -348,12 +348,23 @@ async function runUpdateJob() {
         }
 
         if (apiResult) {
-          let finalDate = new Date(item.pubDate || Date.now());
-          if (apiResult.published_at && apiResult.published_at !== "") {
-            const parsedDate = new Date(apiResult.published_at);
-            if (!isNaN(parsedDate.getTime())) {
-              finalDate = parsedDate;
+          // 日付は RSS の pubDate を最優先（未来の発売日などによる上書きを防ぐ）
+          let finalDate = null;
+          if (item.pubDate) {
+            const parsedPubDate = new Date(item.pubDate);
+            if (!isNaN(parsedPubDate.getTime())) finalDate = parsedPubDate;
+          }
+          // pubDate が無い、またはパースに失敗した場合は AI が推測したニュース公開日を利用
+          if (!finalDate && apiResult.published_at && apiResult.published_at !== "") {
+            const parsedAiDate = new Date(apiResult.published_at);
+            // 推測された日付が未来すぎる場合は除外（発売日誤認防止）
+            if (!isNaN(parsedAiDate.getTime()) && parsedAiDate <= new Date()) {
+              finalDate = parsedAiDate;
             }
+          }
+          // それでも無い場合は現在時刻
+          if (!finalDate) {
+            finalDate = new Date();
           }
 
           const newDoc = await Article.create({
@@ -469,8 +480,8 @@ async function deduplicateRecentArticles(newArticleIds) {
 
       const prompt = `
 以下の記事リストは、特定のタグ（${tag}）に関連する最近のニュースです。
-同じ出来事（例：全く同じ企業の買収、全く同じ新商品の発売など）を報じている「重複記事のグループ」を特定してください。
-文字や表現が違っても、ニュースとしての「出来事」が同一であれば重複とみなします（例：「企業買収」と「完全子会社化」等）。
+同じ出来事に関するニュースは、情報元（媒体）や表現が異なっても全て同一の「重複記事グループ」として特定してください。
+（例：「同じ製品名の新発売」「同じ製品の販売終了」「同じ製品の成分変更」「全く同じ企業の買収や提携」など、出来事が同一であれば重複とみなします）
 
 以下の要件を満たすJSONフォーマットの配列で出力してください。
 - 同一イベントを報じる記事IDの配列を、配列として出力してください。
