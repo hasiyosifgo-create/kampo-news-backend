@@ -1,0 +1,31 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@mozilla/readability": "^0.6.0",
+    "axios": "^1.17.0",
+    "cors": "^2.8.6",
+    "deepl-node": "^1.27.0",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "google-translate-api-x": "^10.7.3",
+    "jsdom": "^29.1.1",
+    "mongoose": "^9.7.0",
+    "node-cron": "^4.2.1",
+    "node-notifier": "^10.0.1",
+    "puppeteer": "^25.1.0",
+    "rss-parser": "^3.13.0",
+    "turndown": "^7.2.4"
+  }
+}
