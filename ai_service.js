@@ -38,9 +38,11 @@ function getModel() {
         properties: {
           summary: { type: SchemaType.STRING },
           tags: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
-          topic_name: { type: SchemaType.STRING }
+          topic_name: { type: SchemaType.STRING },
+          category: { type: SchemaType.STRING },
+          published_at: { type: SchemaType.STRING }
         },
-        required: ["summary", "tags", "topic_name"]
+        required: ["summary", "tags", "topic_name", "category"]
       }
     }
   });
@@ -194,9 +196,7 @@ async function processArticleWithGemini(articleText, title, category) {
     throw new Error('GEMINI_API_KEY is missing or invalid.');
   }
 
-  let prompt = '';
-  if (category === 'product') {
-    prompt = `
+  const prompt = `
 以下の日本語のニュース記事（漢方や生薬に関するもの）を読んで、要約と情報を抽出してください。
 ※本文全体の翻訳や出力は不要です。
 
@@ -207,28 +207,14 @@ ${title}
 ${articleText}
 
 以下の要件を満たす情報をJSONフォーマットで出力してください。
-- summary: 記事の要約（3〜4文程度でわかりやすく。※対象製品名と理由・時期が必ず含まれるようにしてください）。もし記事が「漢方薬・生薬・医薬品・健康食品」の具体的な製品情報（新発売、終了、回収、出荷など）ではない場合（例：単なる企業のお問い合わせページ、サイトマップ、会社概要、採用情報、IR情報、一般的なお菓子や日用品のニュース、リンク集など）は、\`UNRELATED\` という文字列だけを出力してください。
-- tags: 「アクション（発売、終了、回収、出荷、変更のいずれか）」と「対象の企業名」の2つのみを必ず配列として出力してください。（例: ["発売", "クラシエ"], ["回収", "松浦薬業"], ["変更", "ツムラ"] 等）
-- topic_name: この記事が扱っている主要な「ニュースのトピック名」または「イベント名」を短い名詞句で出力（例: "〇〇湯の新発売" 等）
-`;
-  } else {
-    prompt = `
-以下の日本語のニュース記事（漢方や生薬に関するもの）を読んで、要約と情報を抽出してください。
-※本文全体の翻訳や出力は不要です。
-
-【タイトル】
-${title}
-
-【本文】
-${articleText}
-
-以下の要件を満たす情報をJSONフォーマットで出力してください。
-- summary: 記事の要約（3〜4文程度でわかりやすく。）。もし記事が「漢方薬・生薬・東洋医学・医療」と全く無関係な一般的なニュースである場合は \`UNRELATED\` とだけ出力し、もし詐欺サイト・SEOスパム・不審な通販やオークション相場情報である場合は \`SPAM\` とだけ出力してください。
-- tags: 記事に関連する最も重要な漢方薬・生薬名、または企業名などのタグ（厳選して最大2つまで。例: 葛根湯, ツムラ 等）
-- topic_name: この記事が扱っている主要な「ニュースのトピック名」または「イベント名」を短い名詞句で出力
+- category: この記事が特定の「製品情報（新発売、販売終了、自主回収、出荷調整、パッケージ・成分の変更など）」を報じている場合は "product" を、一般的なニュース（業界動向、企業の決算、人事、一般的な医療コラムなど）の場合は "news" を出力してください。
+- summary: 記事の要約（3〜4文程度）。※もし記事が漢方・生薬・医療・健康食品などと全く無関係な一般的なお菓子・日用品のニュースや、単なる企業のお問い合わせページ、会社概要、採用情報、リンク集などの場合は、\`UNRELATED\` という文字列だけを出力してください。また、詐欺サイトやスパムと思われる場合は \`SPAM\` と出力してください。
+- tags: 
+  - categoryが "product" と判定された場合: 「アクション（発売、終了、回収、出荷、変更のいずれか）」と「対象の企業名（またはブランド名）」の2つのみを配列で出力。（例: ["発売", "クラシエ"]）
+  - categoryが "news" と判定された場合: 記事に関連する最も重要な漢方薬・生薬名、または企業名などのタグ（厳選して最大2つまで。例: ["葛根湯", "ツムラ"]）
+- topic_name: この記事が扱っている主要な「ニュースのトピック名」または「イベント名」を短い名詞句で出力（例: "〇〇湯の新発売", "ツムラの決算発表" 等）
 - published_at: 記事本文内に公開日や発表日が記載されている場合、その日付を "YYYY-MM-DD" 形式で出力（不明な場合は空文字 "" にする）
 `;
-  }
 
   let maxRetries = FALLBACK_MODELS.length * 2;
   let attempts = 0;
@@ -380,7 +366,7 @@ async function runUpdateJob() {
             tags: JSON.stringify(apiResult.tags || []),
             translated_content: contentToProcess,
             topic_name: apiResult.topic_name || '一般ニュース',
-            category: item.category || 'news'
+            category: apiResult.category || item.category || 'news'
           });
           newArticleIds.push(newDoc._id);
           processedCount++;
