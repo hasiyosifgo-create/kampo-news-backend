@@ -207,7 +207,7 @@ ${title}
 ${articleText}
 
 以下の要件を満たす情報をJSONフォーマットで出力してください。
-- summary: 記事の要約（3〜4文程度でわかりやすく。※対象製品名と理由・時期が必ず含まれるようにしてください）。もし記事が「漢方薬・生薬・医薬品・健康食品」と全く無関係な一般的なお菓子（キャンディ、グミ、知育菓子など）や日用品のニュースである場合は、\`UNRELATED\` という文字列だけを出力してください。
+- summary: 記事の要約（3〜4文程度でわかりやすく。※対象製品名と理由・時期が必ず含まれるようにしてください）。もし記事が「漢方薬・生薬・医薬品・健康食品」の具体的な製品情報（新発売、終了、回収、出荷など）ではない場合（例：単なる企業のお問い合わせページ、サイトマップ、会社概要、採用情報、IR情報、一般的なお菓子や日用品のニュース、リンク集など）は、\`UNRELATED\` という文字列だけを出力してください。
 - tags: 「アクション（発売、終了、回収、出荷、変更のいずれか）」と「対象の企業名」の2つのみを必ず配列として出力してください。（例: ["発売", "クラシエ"], ["回収", "松浦薬業"], ["変更", "ツムラ"] 等）
 - topic_name: この記事が扱っている主要な「ニュースのトピック名」または「イベント名」を短い名詞句で出力（例: "〇〇湯の新発売" 等）
 `;
@@ -355,8 +355,8 @@ async function runUpdateJob() {
         // Gemini APIの無料枠制限を確実に回避するため、1記事ごとに10秒待機する
         await new Promise(resolve => setTimeout(resolve, 10000));
         
-        // 無関係な記事（UNRELATED）やスパム（SPAM）はスキップ（ただし、製薬会社サイトからの直接取得分は除外しない）
-        if (!item.isDirectScrape && apiResult && apiResult.summary && (apiResult.summary.includes('UNRELATED') || apiResult.summary.includes('SPAM'))) {
+        // 無関係な記事（UNRELATED）やスパム（SPAM）はスキップ（全カテゴリ共通で弾く）
+        if (apiResult && apiResult.summary && (apiResult.summary.includes('UNRELATED') || apiResult.summary.includes('SPAM'))) {
           console.log(`Skipping unrelated or spam article: ${item.title}`);
           continue;
         }
