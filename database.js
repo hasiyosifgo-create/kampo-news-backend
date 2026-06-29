@@ -12,6 +12,7 @@ const articleSchema = new mongoose.Schema({
   translated_content: { type: String },
   topic_name: { type: String },
   category: { type: String, default: 'news' },
+  is_duplicate: { type: Boolean, default: false },
   created_at: { type: Date, default: Date.now }
 });
 

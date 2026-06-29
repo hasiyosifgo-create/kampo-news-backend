@@ -38,7 +38,7 @@ app.get('/api/status', (req, res) => {
 app.get('/api/articles', async (req, res) => {
   try {
     const { category, tag } = req.query;
-    let query = {};
+    let query = { is_duplicate: { $ne: true } };
     if (category) {
       query.category = category;
     }

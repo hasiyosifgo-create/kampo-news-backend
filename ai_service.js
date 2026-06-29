@@ -57,10 +57,17 @@ let lastUpdateCount = 0;
 // 漢方・生薬ニュースを取得する（Bing News & Note RSS）
 async function fetchAINews() {
   const bingQueries = [
-    '漢方', '生薬', 'ツムラ', 'クラシエ', '小太郎漢方', 'イスクラ',
-    'JPS漢方', '三和生薬', '東洋薬行', '日邦薬品', '救心製薬', '大和製薬',
-    '日本粉末薬品', '滝沢漢方', 'ウチダ和漢薬', '栃本天海堂', '小林製薬',
-    '井藤漢方', '剤盛堂', 'ホノミ漢方', '松浦薬業'
+    '漢方', '生薬',
+    'site:yakuji.co.jp 漢方', 'site:medical.nikkeibp.co.jp 漢方',
+    // 日本漢方生薬製剤協会 会員企業
+    'アスゲン製薬', 'アリナミン製薬', 'アルプス薬品工業', 'イスクラ産業',
+    'ウチダ和漢薬', '大木製薬', '大草薬品', '大杉製薬', '太田胃散', '大峰堂薬品工業',
+    '北日本製薬', '救心製薬', 'クラシエ', '健創製薬', '皇漢薬品研究所',
+    '興和', '小太郎漢方', '小西製薬', '小林製薬', '剤盛堂薬品', '阪本漢法製薬',
+    '佐藤製薬', '三宝製薬', '三和生薬', 'JPS漢方', 'ゼリア新薬',
+    '全薬工業', '第一三共ヘルスケア', '大幸薬品', '大正製薬', '建林松鶴堂',
+    '常磐植物化学研究所', 'ツムラ', '栃本天海堂', '長野県製薬', '日本粉末薬品',
+    '本草製薬', '松浦薬業', '養命酒', '龍角散', 'ロート製薬', '和漢薬研究所'
   ];
   const noteTags = ['漢方', '生薬'];
   const results = [];
@@ -201,7 +208,7 @@ ${articleText}
 
 以下の要件を満たす情報をJSONフォーマットで出力してください。
 - summary: 記事の要約（3〜4文程度でわかりやすく。※対象製品名と理由・時期が必ず含まれるようにしてください）。もし記事が「漢方薬・生薬・医薬品・健康食品」と全く無関係な一般的なお菓子（キャンディ、グミ、知育菓子など）や日用品のニュースである場合は、\`UNRELATED\` という文字列だけを出力してください。
-- tags: 「アクション（発売、終了、回収、出荷のいずれか）」と「対象の企業名」の2つのみを必ず配列として出力してください。（例: ["発売", "クラシエ"], ["回収", "松浦薬業"] 等）
+- tags: 「アクション（発売、終了、回収、出荷、変更のいずれか）」と「対象の企業名」の2つのみを必ず配列として出力してください。（例: ["発売", "クラシエ"], ["回収", "松浦薬業"], ["変更", "ツムラ"] 等）
 - topic_name: この記事が扱っている主要な「ニュースのトピック名」または「イベント名」を短い名詞句で出力（例: "〇〇湯の新発売" 等）
 `;
   } else {
@@ -256,6 +263,7 @@ async function runUpdateJob() {
   isUpdating = true;
   console.log('Starting AI News update job...');
   let processedCount = 0;
+  let newArticleIds = [];
 
   try {
     const items = await fetchAINews();
@@ -362,7 +370,7 @@ async function runUpdateJob() {
             }
           }
 
-          await Article.create({
+          const newDoc = await Article.create({
             title: item.title,
             url: item.link,
             published_at: finalDate,
@@ -374,6 +382,7 @@ async function runUpdateJob() {
             topic_name: apiResult.topic_name || '一般ニュース',
             category: item.category || 'news'
           });
+          newArticleIds.push(newDoc._id);
           processedCount++;
         }
       } catch (e) {
@@ -382,6 +391,11 @@ async function runUpdateJob() {
           console.error('Database error:', e);
         }
       }
+    }
+    
+    // 全記事の取得・保存完了後、重複排除処理を実行
+    if (newArticleIds.length > 0) {
+      await deduplicateRecentArticles(newArticleIds);
     }
   } catch (e) {
     console.error('Update job error:', e);
@@ -423,7 +437,153 @@ function getStatus() {
   return { isUpdating, lastUpdateCount };
 }
 
+async function deduplicateRecentArticles(newArticleIds) {
+  console.log('Starting semantic deduplication for newly added articles...');
+  try {
+    const newArticles = await Article.find({ _id: { $in: newArticleIds } }).lean();
+    if (newArticles.length === 0) return;
+
+    // 新規記事に含まれる企業名などのタグを収集
+    const relevantTags = new Set();
+    newArticles.forEach(a => {
+      try {
+        const tags = JSON.parse(a.tags || '[]');
+        tags.forEach(t => {
+          // 「アクションタグ」は除外し、企業名やトピックになりうるタグのみを収集
+          if (!['発売', '終了', '回収', '出荷', '変更'].includes(t)) {
+            relevantTags.add(t);
+          }
+        });
+      } catch(e) {}
+    });
+
+    if (relevantTags.size === 0) return;
+
+    // 直近7日間の記事を取得
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+    for (const tag of relevantTags) {
+      // 当該タグを含む、直近7日間の記事をすべて取得
+      const articles = await Article.find({
+        published_at: { $gte: sevenDaysAgo },
+        tags: { $regex: tag },
+        is_duplicate: { $ne: true }
+      }).lean();
+
+      if (articles.length < 2) continue; // 比較対象がない場合はスキップ
+
+      console.log(`Deduplicating ${articles.length} articles for tag: ${tag}`);
+
+      // Geminiへ送信する入力文字列の作成
+      let inputText = '';
+      articles.forEach(a => {
+        inputText += `ID: ${a._id}\nTitle: ${a.title}\nSummary: ${a.summary}\nTopic: ${a.topic_name}\n\n`;
+      });
+
+      const prompt = `
+以下の記事リストは、特定のタグ（${tag}）に関連する最近のニュースです。
+同じ出来事（例：全く同じ企業の買収、全く同じ新商品の発売など）を報じている「重複記事のグループ」を特定してください。
+文字や表現が違っても、ニュースとしての「出来事」が同一であれば重複とみなします（例：「企業買収」と「完全子会社化」等）。
+
+以下の要件を満たすJSONフォーマットの配列で出力してください。
+- 同一イベントを報じる記事IDの配列を、配列として出力してください。
+- 重複記事が一つも存在しない場合は、空の配列 [] を出力してください。
+- （例）ID "111" と "222" が同じ出来事、"333" と "444" と "555" が同じ出来事の場合：
+[
+  ["111", "222"],
+  ["333", "444", "555"]
+]
+
+【記事リスト】
+${inputText}
+`;
+
+      let activeModel = getModel();
+      let maxRetries = FALLBACK_MODELS.length * 2;
+      let attempts = 0;
+      let groups = [];
+
+      while (attempts < maxRetries) {
+        try {
+          const result = await activeModel.generateContent(prompt);
+          groups = JSON.parse(result.response.text());
+          break;
+        } catch (error) {
+          if (error.status === 429 || (error.message && error.message.includes('429'))) {
+            currentModelIndex = (currentModelIndex + 1) % FALLBACK_MODELS.length;
+            activeModel = getModel();
+            await new Promise(resolve => setTimeout(resolve, 3000));
+          } else {
+            console.error('Gemini Deduplication API Error:', error.message);
+            break;
+          }
+        }
+        attempts++;
+      }
+
+      if (Array.isArray(groups)) {
+        for (const group of groups) {
+          if (!Array.isArray(group) || group.length < 2) continue;
+          
+          // グループ内の記事をDBから再取得して文字数を比較
+          const groupArticles = await Article.find({ _id: { $in: group } }).lean();
+          if (groupArticles.length < 2) continue;
+
+          // newArticleIdsに含まれていない記事（＝既存記事）を抽出
+          const newIdsStr = newArticleIds.map(id => id.toString());
+          const existingArticles = groupArticles.filter(a => !newIdsStr.includes(a._id.toString()));
+
+          let bestArticleId = null;
+
+          if (existingArticles.length > 0) {
+            // 既存記事が含まれている場合は既存記事を優先（複数あれば一番長いもの）
+            let maxLength = -1;
+            existingArticles.forEach(a => {
+              const len = (a.original_content || '').length;
+              if (len > maxLength) {
+                maxLength = len;
+                bestArticleId = a._id.toString();
+              }
+            });
+          } else {
+            // 全て新規記事の場合は、一番情報量（original_contentの長さ）が多い記事を残す
+            let maxLength = -1;
+            groupArticles.forEach(a => {
+              const len = (a.original_content || '').length;
+              if (len > maxLength) {
+                maxLength = len;
+                bestArticleId = a._id.toString();
+              }
+            });
+          }
+
+          // 選ばれたベスト記事以外を重複（is_duplicate = true）にする
+          const duplicateIds = groupArticles
+            .map(a => a._id.toString())
+            .filter(id => id !== bestArticleId);
+
+          if (duplicateIds.length > 0) {
+            await Article.updateMany(
+              { _id: { $in: duplicateIds } },
+              { $set: { is_duplicate: true } }
+            );
+            console.log(`Marked as duplicate: ${duplicateIds.join(', ')} (Kept: ${bestArticleId})`);
+          }
+        }
+      }
+      
+      // レート制限回避のため少し待機
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+    console.log('Semantic deduplication finished.');
+  } catch (err) {
+    console.error('Error during deduplication:', err);
+  }
+}
+
 module.exports = {
   runUpdateJob,
-  getStatus
+  getStatus,
+  deduplicateRecentArticles
 };
