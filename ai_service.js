@@ -11,6 +11,31 @@ const parser = new Parser();
 const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
 let genAI = null;
 
+// HTML取得時の文字化け（Shift_JISなど）を防ぐヘルパー関数
+async function fetchHtmlWithEncoding(url, options = {}) {
+  const finalOptions = { ...options, responseType: 'arraybuffer' };
+  const res = await axios.get(url, finalOptions);
+  
+  const htmlBinary = res.data.toString('binary');
+  const charsetMatch = htmlBinary.match(/charset=["']?([a-zA-Z0-9\-_]+)["']?/i);
+  let charset = 'utf-8';
+  if (charsetMatch) {
+    charset = charsetMatch[1].toLowerCase();
+  }
+  
+  let decodedHtml;
+  try {
+    const decoder = new TextDecoder(charset);
+    decodedHtml = decoder.decode(res.data);
+  } catch (e) {
+    const decoder = new TextDecoder('utf-8');
+    decodedHtml = decoder.decode(res.data);
+  }
+  
+  return { html: decodedHtml, finalUrl: res.request?.res?.responseUrl || url };
+}
+
+
 const FALLBACK_MODELS = [
   // 上限が大きいモデル（安定して使えるもの）
   "gemini-3.1-flash-lite",    // RPD 500
@@ -141,9 +166,8 @@ async function fetchPharmaSitesViaRSS() {
 
   for (const site of directSites) {
     try {
-      const response = await axios.get(site.url, { timeout: 10000 });
-      const finalBaseUrl = response.request.res.responseUrl || site.url;
-      const dom = new JSDOM(response.data);
+      const { html, finalUrl: finalBaseUrl } = await fetchHtmlWithEncoding(site.url, { timeout: 10000 });
+      const dom = new JSDOM(html);
       const links = Array.from(dom.window.document.querySelectorAll('a'))
         .filter(a => a.href && a.textContent)
         .map(a => {
@@ -301,11 +325,10 @@ async function runUpdateJob() {
         if (finalUrl.toLowerCase().endsWith('.pdf')) {
           contentToProcess = '（PDF形式のニュースリリースです。詳細はリンク先をご参照ください）';
         } else {
-          const response = await axios.get(finalUrl, {
+          const { html } = await fetchHtmlWithEncoding(finalUrl, {
             headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36' },
             timeout: 10000
           });
-          const html = response.data;
 
           const dom = new JSDOM(html, { url: finalUrl });
           const document = dom.window.document;
