@@ -294,10 +294,18 @@ async function runUpdateJob() {
     const pharmaItems = await fetchPharmaSitesViaRSS();
     items.push(...pharmaItems);
 
-    // 1ヶ月前（約30日前）の日付を計算
-    const oneMonthAgo = new Date();
-    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-    const timeLimit = oneMonthAgo.getTime();
+    // DBの記事数を取得して足切りラインを動的に設定
+    const dbArticleCount = await Article.countDocuments();
+    let timeLimitDate = new Date();
+    if (dbArticleCount === 0) {
+      // DBが空の場合は直近7日間
+      timeLimitDate.setDate(timeLimitDate.getDate() - 7);
+    } else {
+      // 既に運用中の場合は当日の0時以降の最新記事のみ
+      timeLimitDate.setHours(0, 0, 0, 0);
+    }
+    const timeLimit = timeLimitDate.getTime();
+    console.log(`Time Limit Set: ${timeLimitDate.toISOString()} (DB count: ${dbArticleCount})`);
 
     // DBの既存タイトルを取得して、過去のジョブを含めた全体での重複を排除する
     const existingArticles = await Article.find({}, 'title').lean();
@@ -386,17 +394,19 @@ async function runUpdateJob() {
             const parsedPubDate = new Date(item.pubDate);
             if (!isNaN(parsedPubDate.getTime())) finalDate = parsedPubDate;
           }
-          // pubDate が無い、またはパースに失敗した場合は AI が推測したニュース公開日を利用
+          // pubDate が無い、またはパースに失敗した場合で AI が日付を抽出した場合
           if (!finalDate && apiResult.published_at && apiResult.published_at !== "") {
             const parsedAiDate = new Date(apiResult.published_at);
-            // 推測された日付が未来すぎる場合は除外（発売日誤認防止）
+            // 未来の日付の場合は除外（フェイルセーフ）
             if (!isNaN(parsedAiDate.getTime()) && parsedAiDate <= new Date()) {
               finalDate = parsedAiDate;
             }
           }
-          // それでも無い場合は現在時刻
-          if (!finalDate) {
-            finalDate = new Date();
+          
+          // 日付が取得できなかった場合、またはtimeLimitより古い場合は破棄する
+          if (!finalDate || finalDate.getTime() < timeLimit) {
+            console.log(`Skipping old or undated article: ${item.title} (Date: ${finalDate ? finalDate.toISOString() : 'Unknown'})`);
+            continue;
           }
 
           const newDoc = await Article.create({
