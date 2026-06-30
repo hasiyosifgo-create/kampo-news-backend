@@ -113,7 +113,7 @@ async function fetchAINews() {
     try {
       const url = `https://www.bing.com/news/search?q=${encodeURIComponent(q)}&format=RSS&cc=jp`;
       const feed = await parser.parseURL(url);
-      results.push(...feed.items.slice(0, 10).map(item => {
+      results.push(...feed.items.slice(0, 30).map(item => {
         // Bingのapiclickから元のURLを抽出
         let linkUrl = item.link;
         if (linkUrl.includes('bing.com/news/apiclick')) {
@@ -142,7 +142,7 @@ async function fetchAINews() {
     try {
       const url = `https://note.com/hashtag/${encodeURIComponent(tag)}/rss`;
       const feed = await parser.parseURL(url);
-      results.push(...feed.items.slice(0, 5).map(item => ({
+      results.push(...feed.items.slice(0, 15).map(item => ({
         title: `【Note】${item.title}`,
         link: item.link,
         pubDate: item.pubDate,
@@ -204,7 +204,7 @@ async function fetchPharmaSitesViaRSS() {
           pubDateStr = `${dateMatch[1]}-${dateMatch[2].padStart(2, '0')}-01`;
         }
 
-        if (extractedCount >= 5) break; // 各サイト最大5件まで
+        if (extractedCount >= 20) break; // 各サイト最大20件まで
 
         results.push({
           title: `【${site.name} 公式】${link.text}`,
@@ -241,7 +241,7 @@ ${articleText}
 
 以下の要件を満たす情報をJSONフォーマットで出力してください。
 - category: この記事が特定の製品に関する「具体的なアクション・出来事（新発売、販売終了、自主回収、出荷調整、パッケージや成分の変更、添付文書の改訂など）」のニュースである場合は "product" を出力してください。（※注意：「添付文書の改訂」は重要な変更ニュースですが、単に既存製品の「添付文書をWebに掲載しました」といった案内や、製品の一般的なカタログ・説明ページなどは新たな出来事ではないため "news" または "UNRELATED" としてください）。その他の一般的なニュース（業界動向、企業の決算、人事、一般的な医療コラムなど）の場合は "news" を、個人の体験談や考察、Noteなどのブログ記事の場合は "blog" を出力してください。
-- summary: 記事の要約（3〜4文程度）。※もし記事が「漢方」「生薬」「東洋医学」に直接関連しないニュース（例：一般的な西洋薬、風邪薬、一般的な化粧品・スキンケア・ヘアケア、単なる企業のお問い合わせページ、会社概要、採用情報、リンク集、企業理念、会社の沿革（歴史・あゆみ）、代表ご挨拶などの固定ページ、単なる既存製品のカタログや添付文書の「掲載・案内」など）の場合は、必ず \`UNRELATED\` という文字列だけを出力してください。また、詐欺サイトやスパムと思われる場合も \`SPAM\` と出力してください。
+- summary: 記事の要約（3〜4文程度）。※もし記事が「漢方」「生薬」「東洋医学」に直接関連しないニュース（例：一般的な西洋薬、風邪薬、一般的な化粧品・スキンケア・ヘアケア、単なる企業のお問い合わせページ、会社概要、採用情報、リンク集、企業理念、会社の沿革（歴史・あゆみ）などの固定ページ、単なる既存製品のカタログや添付文書の「掲載・案内」など）の場合は、必ず \`UNRELATED\` という文字列だけを出力してください。（※ただし「新年のご挨拶」や「社長・役員交代のご挨拶」といった時事的なご挨拶ニュースはUNRELATEDにせず抽出してください）。また、詐欺サイトやスパムと思われる場合も \`SPAM\` と出力してください。
 - tags: 
   - categoryが "product" と判定された場合: 「アクション（発売、終了、回収、出荷、変更のいずれか）」と「対象の企業名（またはブランド名）」の2つのみを配列で出力。（例: ["発売", "クラシエ"]）
   - categoryが "news" または "blog" と判定された場合: 記事に関連する最も重要な漢方薬・生薬名、または企業名などのタグ（厳選して最大2つまで。例: ["葛根湯", "ツムラ"]）
