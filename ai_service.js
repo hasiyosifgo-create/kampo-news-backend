@@ -64,11 +64,20 @@ function getModel() {
           summary: { type: SchemaType.STRING },
           tags: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
           topic_name: { type: SchemaType.STRING },
-          category: { type: SchemaType.STRING },
-          published_at: { type: SchemaType.STRING }
+          category: { type: SchemaType.STRING, enum: ['product', 'news', 'blog'] }
         },
         required: ["summary", "tags", "topic_name", "category"]
       }
+    }
+  });
+}
+
+function getDeduplicationModel() {
+  if (!genAI) return null;
+  return genAI.getGenerativeModel({
+    model: FALLBACK_MODELS[currentModelIndex],
+    generationConfig: {
+      responseMimeType: "application/json"
     }
   });
 }
@@ -519,7 +528,7 @@ async function deduplicateRecentArticles(newArticleIds) {
 ${inputText}
 `;
 
-      let activeModel = getModel();
+      let activeModel = getDeduplicationModel();
       let maxRetries = FALLBACK_MODELS.length * 2;
       let attempts = 0;
       let groups = [];
@@ -532,7 +541,7 @@ ${inputText}
         } catch (error) {
           if (error.status === 429 || (error.message && error.message.includes('429'))) {
             currentModelIndex = (currentModelIndex + 1) % FALLBACK_MODELS.length;
-            activeModel = getModel();
+            activeModel = getDeduplicationModel();
             await new Promise(resolve => setTimeout(resolve, 3000));
           } else {
             console.error('Gemini Deduplication API Error:', error.message);
