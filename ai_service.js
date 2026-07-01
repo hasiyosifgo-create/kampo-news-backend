@@ -623,8 +623,48 @@ ${inputText}
   }
 }
 
+async function sendLineNotification(sinceTime) {
+  if (!process.env.LINE_CHANNEL_ACCESS_TOKEN || !process.env.LINE_USER_ID) return;
+  try {
+    const newArticles = await Article.find({ created_at: { $gte: sinceTime }, is_duplicate: false }).sort({ created_at: -1 }).lean();
+    if (newArticles.length === 0) {
+      console.log('No new articles for LINE notification.');
+      return;
+    }
+    
+    const appUrl = process.env.RENDER_EXTERNAL_URL || process.env.APP_URL || '';
+    let messageText = '📰 ニュース: 新着 ' + newArticles.length + ' 件！\n\n';
+    
+    const displayLimit = 10;
+    const articlesToShow = newArticles.slice(0, displayLimit);
+    articlesToShow.forEach(a => {
+      messageText += '- ' + a.title + '\n';
+    });
+    
+    if (newArticles.length > displayLimit) {
+      messageText += '...他 ' + (newArticles.length - displayLimit) + ' 件\n';
+    }
+    
+    messageText += '\n確認してみてね！\n' + appUrl;
+    
+    await axios.post('https://api.line.me/v2/bot/message/push', {
+      to: process.env.LINE_USER_ID,
+      messages: [{ type: 'text', text: messageText }]
+    }, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`
+      }
+    });
+    console.log('Scheduled LINE notification sent successfully.');
+  } catch (err) {
+    console.error('Error sending scheduled LINE notification:', err.response ? err.response.data : err.message);
+  }
+}
+
 module.exports = {
   runUpdateJob,
+  sendLineNotification,
   getStatus,
   deduplicateRecentArticles
 };
