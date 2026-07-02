@@ -443,30 +443,7 @@ async function runUpdateJob() {
     lastUpdateCount = processedCount;
     console.log(`Update job finished. Added ${processedCount} new articles.`);
     
-    // LINE Messaging API (公式アカウント) への通知送信
-    if (processedCount > 0 && process.env.LINE_CHANNEL_ACCESS_TOKEN && process.env.LINE_USER_ID) {
-      try {
-        // RenderでのアプリURL（環境変数APP_URLで設定、なければRenderの自動URL）
-        const appUrl = process.env.RENDER_EXTERNAL_URL || process.env.APP_URL || '';
-        const messageText = `漢方ニュース: 新着が ${processedCount} 件ありました！\n\nここから確認してください👇\n${appUrl}`;
-        
-        await axios.post('https://api.line.me/v2/bot/message/push', {
-          to: process.env.LINE_USER_ID,
-          messages: [{
-            type: 'text',
-            text: messageText
-          }]
-        }, {
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`
-          }
-        });
-        console.log('LINE Messaging API sent successfully.');
-      } catch (lineErr) {
-        console.error('LINE Messaging API failed:', lineErr.response ? lineErr.response.data : lineErr.message);
-      }
-    }
+
   }
   
   return processedCount;
