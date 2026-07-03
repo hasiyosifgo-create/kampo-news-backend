@@ -95,6 +95,9 @@ async function fetchAINews() {
   const bingQueries = [
     '漢方', '生薬',
     'site:yakuji.co.jp 漢方', 'site:medical.nikkeibp.co.jp 漢方',
+    'site:prtimes.jp 漢方', 'site:prtimes.jp 生薬',
+    'site:atpress.ne.jp 漢方', 'site:mhlw.go.jp 漢方',
+    '漢方薬 新発売', '漢方薬 自主回収', '漢方薬 出荷調整',
     // 日本漢方生薬製剤協会 会員企業
     'アスゲン製薬', 'アリナミン製薬', 'アルプス薬品工業', 'イスクラ産業',
     'ウチダ和漢薬', '大木製薬', '大草薬品', '大杉製薬', '太田胃散', '大峰堂薬品工業',
@@ -142,7 +145,7 @@ async function fetchAINews() {
     try {
       const url = `https://note.com/hashtag/${encodeURIComponent(tag)}/rss`;
       const feed = await parser.parseURL(url);
-      results.push(...feed.items.slice(0, 15).map(item => ({
+      results.push(...feed.items.slice(0, 5).map(item => ({
         title: `【Note】${item.title}`,
         link: item.link,
         pubDate: item.pubDate,
