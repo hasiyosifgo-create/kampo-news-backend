@@ -613,19 +613,30 @@ async function sendLineNotification(sinceTime) {
     }
     
     const appUrl = process.env.RENDER_EXTERNAL_URL || process.env.APP_URL || '';
-    let messageText = '📰 ニュース: 新着 ' + newArticles.length + ' 件！\n\n';
+    let messageText = '📰 漢方ニュース: 新着 ' + newArticles.length + ' 件！\n\n';
     
-    const displayLimit = 10;
-    const articlesToShow = newArticles.slice(0, displayLimit);
-    articlesToShow.forEach(a => {
-      messageText += '- ' + a.title + '\n';
-    });
+    const newsArticles = newArticles.filter(a => (a.category || 'news') === 'news');
+    const productArticles = newArticles.filter(a => a.category === 'product');
+    const blogArticles = newArticles.filter(a => a.category === 'blog');
+
+    const appendCategory = (title, items, limit = 5) => {
+      if (items.length > 0) {
+        messageText += `【${title}】\n`;
+        items.slice(0, limit).forEach(a => {
+          messageText += '・' + a.title + '\n';
+        });
+        if (items.length > limit) {
+          messageText += `...他 ${items.length - limit} 件\n`;
+        }
+        messageText += '\n';
+      }
+    };
+
+    appendCategory('ニュース', newsArticles, 5);
+    appendCategory('製品情報', productArticles, 5);
+    appendCategory('ブログ', blogArticles, 5);
     
-    if (newArticles.length > displayLimit) {
-      messageText += '...他 ' + (newArticles.length - displayLimit) + ' 件\n';
-    }
-    
-    messageText += '\n確認してみてね！\n' + appUrl;
+    messageText += '詳細はこちら👇\n' + appUrl;
     
     await axios.post('https://api.line.me/v2/bot/message/push', {
       to: process.env.LINE_USER_ID,
