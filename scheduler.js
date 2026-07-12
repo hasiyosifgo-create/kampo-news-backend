@@ -1,38 +1,85 @@
-const cron = require('node-cron');
+const mongoose = require('mongoose');
 const { runUpdateJob, sendLineNotification } = require('./ai_service');
 
 let isRunning = false;
 let loopTimeout = null;
-let activeJobs = [];
 
 async function setupSchedules() {
   if (isRunning) return;
   isRunning = true;
   
-  console.log('Starting continuous scraping background process...');
+  console.log('Starting continuous scraping and sleep-resistant notification background process...');
   
-  // éžåŒæœŸã§å¸¸æ™‚ãƒ«ãƒ¼ãƒ—ï¼ˆã‚¹ã‚¯ãƒ¬ã‚¤ãƒ”ãƒ³ã‚°ï¼‰ã‚’é–‹å§‹
+  // ”ñ“¯Šú‚ÅíŽžƒ‹[ƒviƒXƒNƒŒƒCƒsƒ“ƒO•’Ê’mƒ`ƒFƒbƒNj‚ðŠJŽn
   startContinuousLoop();
+}
 
-  // LINEé€šçŸ¥ç”¨ã®ã‚¹ã‚±ã‚¸ãƒ¥ãƒ¼ãƒ«ã‚’è¨­å®š
-  setupNotificationCron();
+async function checkScheduledNotifications() {
+  try {
+    const now = new Date();
+    // “ú–{ŽžŠÔ‚É•ÏŠ·
+    const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+    const jstHour = jstNow.getUTCHours();
+    
+    let targetHour = -1;
+    let sinceHours = 6;
+    
+    // 18ŽžˆÈ~‚È‚ç18Žž‚Ì’Ê’mA12ŽžˆÈ~‚È‚ç12Žž‚Ì’Ê’mA6ŽžˆÈ~‚È‚ç6Žž‚Ì’Ê’m
+    if (jstHour >= 18) { targetHour = 18; sinceHours = 6; }
+    else if (jstHour >= 12) { targetHour = 12; sinceHours = 6; }
+    else if (jstHour >= 6) { targetHour = 6; sinceHours = 12; }
+    
+    if (targetHour !== -1) {
+      // “ú•t•¶Žš—ñ (—á: "2026-07-12") ‚Æ targetHour ‚ð‘g‚Ý‡‚í‚¹‚ÄˆêˆÓ‚ÌID‚ðì¬
+      const dateStr = jstNow.toISOString().split('T')[0];
+      const notifyId = \line_\_\\;
+      
+      const collection = mongoose.connection.db.collection('system_status');
+      
+      // ‚»‚Ì’Ê’m‚ª‚·‚Å‚É‘—M‚³‚ê‚Ä‚¢‚é‚©Šm”F
+      const doc = await collection.findOne({ _id: notifyId });
+      if (!doc) {
+        console.log(\[Notification] Triggering sleep-resistant notification for \:00...\);
+        
+        // sinceTime‚ðŒvŽZ (Œ»Ý‚ÌŽÀÛ‚Ì“úŽž‚©‚çŽw’èŽžŠÔ‘O‚ð‘k‚é)
+        const sinceTime = new Date();
+        sinceTime.setHours(sinceTime.getHours() - sinceHours);
+        
+        await sendLineNotification(sinceTime);
+        
+        // ‘—MÏ‚Ý‚Æ‚µ‚Ä‹L˜^
+        await collection.updateOne(
+          { _id: notifyId },
+          { $set: { sent_at: new Date() } },
+          { upsert: true }
+        );
+        console.log(\[Notification] Marked \ as sent.\);
+      }
+    }
+  } catch (err) {
+    console.error('Error checking scheduled notifications:', err);
+  }
 }
 
 async function startContinuousLoop() {
   while (isRunning) {
-    console.log(`[Continuous Run - ${new Date().toISOString()}] Starting update...`);
+    console.log(\[Continuous Run - \] Starting update...\);
     try {
       const newArticlesCount = await runUpdateJob();
       if (newArticlesCount > 0) {
-        console.log(`[Continuous Run] Finished. ${newArticlesCount} new articles.`);
+        console.log(\[Continuous Run] Finished. \ new articles.\);
       } else {
-        console.log(`[Continuous Run] No new articles found.`);
+        console.log(\[Continuous Run] No new articles found.\);
       }
+      
+      // „‰ñŒã‚É•K‚¸’Ê’m‚Ìƒ`ƒFƒbƒN‚ðs‚¤iSleep•œ‹AŽž‚Ì‚½‚ß‚Ì‘Îôj
+      await checkScheduledNotifications();
+      
     } catch (error) {
       console.error('Error during continuous run:', error);
     }
 
-    // 1å‘¨çµ‚ã‚ã£ãŸã‚‰ã€APIã®åˆ¶é™ã‚’å›žé¿ã™ã‚‹ãŸã‚30åˆ†ï¼ˆ1800000ãƒŸãƒªç§’ï¼‰å¾…æ©Ÿ
+    // 1ŽüI‚í‚Á‚½‚çAAPI‚Ì§ŒÀ‚ð‰ñ”ð‚·‚é‚½‚ß30•ªi1800000ƒ~ƒŠ•bj‘Ò‹@
     console.log('Waiting for 30 minutes before the next run...');
     await new Promise(resolve => {
       loopTimeout = setTimeout(resolve, 30 * 60 * 1000);
@@ -40,45 +87,9 @@ async function startContinuousLoop() {
   }
 }
 
-function setupNotificationCron() {
-  // å¤ã„ã‚¸ãƒ§ãƒ–ãŒã‚ã‚Œã°åœæ­¢
-  activeJobs.forEach(job => job.stop());
-  activeJobs = [];
-
-  const times = [
-    { time: '06:00', sinceHours: 12 }, // 06:00é€šçŸ¥ã¯ã€å‰æ—¥18:00ã€œ06:00ã®12æ™‚é–“åˆ†
-    { time: '12:00', sinceHours: 6 },  // 12:00é€šçŸ¥ã¯ã€å½“æ—¥06:00ã€œ12:00ã®6æ™‚é–“åˆ†
-    { time: '18:00', sinceHours: 6 }   // 18:00é€šçŸ¥ã¯ã€å½“æ—¥12:00ã€œ18:00ã®6æ™‚é–“åˆ†
-  ];
-
-  times.forEach(({ time, sinceHours }) => {
-    const [hour, minute] = time.split(':');
-    const cronExpression = `${minute} ${hour} * * *`;
-    
-    const job = cron.schedule(cronExpression, async () => {
-      console.log(`[Scheduled Notification - ${time}] Checking for new articles...`);
-      try {
-        const sinceTime = new Date();
-        sinceTime.setHours(sinceTime.getHours() - sinceHours);
-        
-        await sendLineNotification(sinceTime);
-      } catch (error) {
-        console.error('Error during scheduled LINE notification:', error);
-      }
-    }, {
-      timezone: "Asia/Tokyo"
-    });
-    
-    activeJobs.push(job);
-    console.log(`Scheduled LINE notification job for ${time} (fetching past ${sinceHours} hours)`);
-  });
-}
-
 function stopSchedules() {
   isRunning = false;
   if (loopTimeout) clearTimeout(loopTimeout);
-  activeJobs.forEach(job => job.stop());
-  activeJobs = [];
 }
 
 module.exports = {
