@@ -108,7 +108,6 @@ async function fetchAINews() {
     '常磐植物化学研究所', 'ツムラ', '栃本天海堂', '長野県製薬', '日本粉末薬品',
     '本草製薬', '松浦薬業', '養命酒', '龍角散', 'ロート製薬', '和漢薬研究所'
   ];
-  const noteTags = ['漢方', '生薬'];
   const results = [];
 
   // Bing News RSS
@@ -137,24 +136,6 @@ async function fetchAINews() {
       }));
     } catch (e) {
       console.warn('Bing RSS parse error:', e.message);
-    }
-  }
-
-  // Note.com RSS
-  for (const tag of noteTags) {
-    try {
-      const url = `https://note.com/hashtag/${encodeURIComponent(tag)}/rss`;
-      const feed = await parser.parseURL(url);
-      results.push(...feed.items.slice(0, 5).map(item => ({
-        title: `【Note】${item.title}`,
-        link: item.link,
-        pubDate: item.pubDate,
-        contentSnippet: item.contentSnippet || item.content,
-        category: 'blog',
-        isDirectScrape: false
-      })));
-    } catch (e) {
-      console.warn('Note RSS parse error:', e.message);
     }
   }
 
@@ -617,7 +598,6 @@ async function sendLineNotification(sinceTime) {
     
     const newsArticles = newArticles.filter(a => (a.category || 'news') === 'news');
     const productArticles = newArticles.filter(a => a.category === 'product');
-    const blogArticles = newArticles.filter(a => a.category === 'blog');
 
     const appendCategory = (title, items, limit = 5) => {
       if (items.length > 0) {
@@ -634,7 +614,6 @@ async function sendLineNotification(sinceTime) {
 
     appendCategory('ニュース', newsArticles, 5);
     appendCategory('製品情報', productArticles, 5);
-    appendCategory('ブログ', blogArticles, 5);
     
     messageText += '詳細はこちら👇\n' + appUrl;
     
