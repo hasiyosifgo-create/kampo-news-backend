@@ -43,8 +43,23 @@ app.get('/api/articles', async (req, res) => {
       query.category = category;
     }
     
-    // 全件取得してソート（フロントエンドでのタグ絞り込みにも対応可能にするため）
+    // まず全件取得（published_atで一次ソート）
     let articles = await Article.find(query).sort({ published_at: -1 }).lean();
+    
+    // summaryが充実している（情報量が多い）記事を優先表示するためにアプリ層で再ソート
+    // summaryが50文字以上あるものを「情報あり」とみなし、それより先に表示
+    articles.sort((a, b) => {
+      const aLen = (a.summary || '').length;
+      const bLen = (b.summary || '').length;
+      const aHasContent = aLen >= 50;
+      const bHasContent = bLen >= 50;
+      // 両方情報あり、または両方情報なしなら日付順
+      if (aHasContent === bHasContent) {
+        return new Date(b.published_at).getTime() - new Date(a.published_at).getTime();
+      }
+      // 情報ありを先に
+      return aHasContent ? -1 : 1;
+    });
     
     // フロントエンドが配列として扱えるように tags をパース
     articles = articles.map(a => {

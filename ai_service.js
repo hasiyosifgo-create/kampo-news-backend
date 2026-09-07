@@ -403,7 +403,7 @@ async function runUpdateJob() {
             summary: apiResult.summary || '',
             tags: JSON.stringify(apiResult.tags || []),
             translated_content: contentToProcess,
-            topic_name: apiResult.topic_name || '一般ニュース',
+            topic_name: apiResult.topic_name || '',
             category: apiResult.category || item.category || 'news'
           });
           newArticleIds.push(newDoc._id);
