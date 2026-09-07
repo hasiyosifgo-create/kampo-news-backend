@@ -10,50 +10,56 @@ async function setupSchedules() {
   
   console.log('Starting continuous scraping and sleep-resistant notification background process...');
   
-  // ”ñ“¯Šú‚Åíƒ‹[ƒviƒXƒNƒŒƒCƒsƒ“ƒO•’Ê’mƒ`ƒFƒbƒNj‚ğŠJn
+  // éåŒæœŸã§å¸¸æ™‚ãƒ«ãƒ¼ãƒ—ï¼ˆã‚¹ã‚¯ãƒ¬ã‚¤ãƒ”ãƒ³ã‚°ï¼‹é€šçŸ¥ãƒã‚§ãƒƒã‚¯ï¼‰ã‚’é–‹å§‹
   startContinuousLoop();
 }
 
 async function checkScheduledNotifications() {
   try {
     const now = new Date();
-    // “ú–{ŠÔ‚É•ÏŠ·
+    // æ—¥æœ¬æ™‚é–“ã«å¤‰æ›
     const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
     const jstHour = jstNow.getUTCHours();
     
+    // 0æ™‚ã€œ6æ™‚ã¯é€šçŸ¥ã‚’è¡Œã‚ãªã„
+    if (jstHour < 6) {
+      console.log(`[Notification] Quiet hours (${jstHour}:00 JST). Skipping LINE notification.`);
+      return;
+    }
+
     let targetHour = -1;
     let sinceHours = 6;
     
-    // 18ˆÈ~‚È‚ç18‚Ì’Ê’mA12ˆÈ~‚È‚ç12‚Ì’Ê’mA6ˆÈ~‚È‚ç6‚Ì’Ê’m
+    // 18æ™‚ä»¥é™ãªã‚‰18æ™‚ã®é€šçŸ¥ã€12æ™‚ä»¥é™ãªã‚‰12æ™‚ã®é€šçŸ¥ã€6æ™‚ä»¥é™ãªã‚‰6æ™‚ã®é€šçŸ¥
     if (jstHour >= 18) { targetHour = 18; sinceHours = 6; }
     else if (jstHour >= 12) { targetHour = 12; sinceHours = 6; }
-    else if (jstHour >= 6) { targetHour = 6; sinceHours = 12; }
+    else if (jstHour >= 6)  { targetHour = 6;  sinceHours = 6; }
     
     if (targetHour !== -1) {
-      // “ú•t•¶š—ñ (—á: "2026-07-12") ‚Æ targetHour ‚ğ‘g‚İ‡‚í‚¹‚ÄˆêˆÓ‚ÌID‚ğì¬
+      // æ—¥ä»˜æ–‡å­—åˆ— (ä¾‹: "2026-07-12") ã¨ targetHour ã‚’çµ„ã¿åˆã‚ã›ã¦ä¸€æ„ã®IDã‚’ä½œæˆ
       const dateStr = jstNow.toISOString().split('T')[0];
-      const notifyId = \line_\_\\;
+      const notifyId = `line_${dateStr}_${targetHour}`;
       
       const collection = mongoose.connection.db.collection('system_status');
       
-      // ‚»‚Ì’Ê’m‚ª‚·‚Å‚É‘—M‚³‚ê‚Ä‚¢‚é‚©Šm”F
+      // ã“ã®é€šçŸ¥ãŒã™ã§ã«é€ä¿¡ã•ã‚Œã¦ã„ã‚‹ã‹ç¢ºèª
       const doc = await collection.findOne({ _id: notifyId });
       if (!doc) {
-        console.log(\[Notification] Triggering sleep-resistant notification for \:00...\);
+        console.log(`[Notification] Triggering sleep-resistant notification for ${targetHour}:00...`);
         
-        // sinceTime‚ğŒvZ (Œ»İ‚ÌÀÛ‚Ì“ú‚©‚çw’èŠÔ‘O‚ğ‘k‚é)
+        // sinceTimeã‚’è¨ˆç®— (ç›´è¿‘6æ™‚é–“åˆ†ã®æ–°ç€ã‚’å¯¾è±¡)
         const sinceTime = new Date();
         sinceTime.setHours(sinceTime.getHours() - sinceHours);
         
         await sendLineNotification(sinceTime);
         
-        // ‘—MÏ‚İ‚Æ‚µ‚Ä‹L˜^
+        // é€ä¿¡æ¸ˆã¿ã¨ã—ã¦è¨˜éŒ²
         await collection.updateOne(
           { _id: notifyId },
           { $set: { sent_at: new Date() } },
           { upsert: true }
         );
-        console.log(\[Notification] Marked \ as sent.\);
+        console.log(`[Notification] Marked ${notifyId} as sent.`);
       }
     }
   } catch (err) {
@@ -63,26 +69,27 @@ async function checkScheduledNotifications() {
 
 async function startContinuousLoop() {
   while (isRunning) {
-    console.log(\[Continuous Run - \] Starting update...\);
+    const now = new Date();
+    console.log(`[Continuous Run - ${now.toISOString()}] Starting update...`);
     try {
       const newArticlesCount = await runUpdateJob();
       if (newArticlesCount > 0) {
-        console.log(\[Continuous Run] Finished. \ new articles.\);
+        console.log(`[Continuous Run] Finished. ${newArticlesCount} new articles.`);
       } else {
-        console.log(\[Continuous Run] No new articles found.\);
+        console.log(`[Continuous Run] No new articles found.`);
       }
       
-      // „‰ñŒã‚É•K‚¸’Ê’m‚Ìƒ`ƒFƒbƒN‚ğs‚¤iSleep•œ‹A‚Ì‚½‚ß‚Ì‘Îôj
+      // æ¯å›å¿…ãšé€šçŸ¥ã®ãƒã‚§ãƒƒã‚¯ã‚’è¡Œã†ï¼ˆSleepå¾©å¸°æ™‚ã®å¯¾ç­–ï¼‰
       await checkScheduledNotifications();
       
     } catch (error) {
       console.error('Error during continuous run:', error);
     }
 
-    // 1üI‚í‚Á‚½‚çAAPI‚Ì§ŒÀ‚ğ‰ñ”ğ‚·‚é‚½‚ß30•ªi1800000ƒ~ƒŠ•bj‘Ò‹@
-    console.log('Waiting for 30 minutes before the next run...');
+    // 2æ™‚é–“ï¼ˆ7200000ãƒŸãƒªç§’ï¼‰å¾…æ©Ÿ
+    console.log('Waiting for 2 hours before the next run...');
     await new Promise(resolve => {
-      loopTimeout = setTimeout(resolve, 30 * 60 * 1000);
+      loopTimeout = setTimeout(resolve, 2 * 60 * 60 * 1000);
     });
   }
 }
