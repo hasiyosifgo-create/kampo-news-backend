@@ -13,7 +13,13 @@ let genAI = null;
 
 // HTML取得時の文字化け（Shift_JISなど）を防ぐヘルパー関数
 async function fetchHtmlWithEncoding(url, options = {}) {
-  const finalOptions = { ...options, responseType: 'arraybuffer' };
+  const https = require('https');
+  const finalOptions = {
+    ...options,
+    responseType: 'arraybuffer',
+    // 古いSSL証明書を持つサイト（大正製薬等）への対応
+    httpsAgent: new https.Agent({ rejectUnauthorized: false })
+  };
   const res = await axios.get(url, finalOptions);
   
   const htmlBinary = res.data.toString('binary');
@@ -147,12 +153,48 @@ async function fetchAINews() {
 async function fetchPharmaSitesViaRSS() {
   let results = [];
   
-  // 直接スクレイピングによる取得（Google Newsでヒットしないマイナー企業用）
+  // 直接スクレイピングによる取得（全会員企業対応）
   const directSites = [
+    // 既存（動作確認済み）
     { name: '小太郎漢方', url: 'https://www.kotaro.co.jp/category/news_release/' },
     { name: 'イスクラ産業', url: 'https://www.iskra.co.jp/news/' },
     { name: '三和生薬', url: 'https://www.sanwashoyaku.co.jp/' },
     { name: 'ホノミ漢方', url: 'https://www.zaiseido.co.jp/topics/' },
+    // 新規追加（URL疎通確認済み）
+    { name: 'アスゲン製薬', url: 'https://www.asgen.co.jp/news/' },
+    { name: 'アリナミン製薬', url: 'https://alinamin-pharma.co.jp/news/' },
+    { name: 'アルプス薬品工業', url: 'https://www.alps-pharm.co.jp/news/' },
+    { name: 'ウチダ和漢薬', url: 'https://www.uchidawakanyaku.co.jp/' },
+    { name: '大木製薬', url: 'https://www.ohkiseiyaku.com/news/' },
+    { name: '大草薬品', url: 'https://www.okusa.co.jp/' },
+    { name: '大杉製薬', url: 'https://ohsugi-kanpo.co.jp/' },
+    { name: '太田胃散', url: 'https://www.ohta-isan.co.jp/whatsnew/' },
+    { name: '大峰堂薬品工業', url: 'https://www.ominedo.co.jp/' },
+    { name: '北日本製薬', url: 'https://www.999jp.co.jp/' },
+    { name: '救心製薬', url: 'https://www.kyushin.co.jp/' },
+    { name: '皇漢薬品研究所', url: 'https://kohkan.co.jp/news/' },
+    { name: '興和', url: 'https://www.kowa.co.jp/news/index.htm' },
+    { name: '小西製薬', url: 'https://konishi-ph.jp/' },
+    { name: '小林製薬', url: 'https://www.kobayashi.co.jp/newsrelease/' },
+    { name: '阪本漢法製薬', url: 'https://sakampow.com/news/' },
+    { name: '佐藤製薬', url: 'https://www.sato-seiyaku.co.jp/newsrelease/' },
+    { name: '三宝製薬', url: 'https://www.sampo-seiyaku.co.jp/' },
+    { name: 'JPS製薬', url: 'https://www.jps-pharm.com/news/' },
+    { name: 'ゼリア新薬', url: 'https://www.zeria.co.jp/information/' },
+    { name: '全薬工業', url: 'https://www.zenyaku.co.jp/news/' },
+    { name: '第一三共ヘルスケア', url: 'https://www.daiichisankyo-hc.co.jp/' },
+    { name: '大幸薬品', url: 'https://www.seirogan.co.jp/' },
+    { name: '大正製薬', url: 'https://www.taisho.co.jp/' },
+    { name: '建林松鶴堂', url: 'https://kanpou-tatebayashi.jp/' },
+    { name: '常磐植物化学研究所', url: 'https://www.tokiwaph.co.jp/information/' },
+    { name: '栃本天海堂', url: 'https://www.tochimoto.co.jp/' },
+    { name: '長野県製薬', url: 'https://www.hyakuso.co.jp/news/' },
+    { name: '日本粉末薬品', url: 'https://www.nfy.co.jp/' },
+    { name: '本草製薬', url: 'https://www.honzo.co.jp/' },
+    { name: '松浦薬業', url: 'https://www.matsuura-gp.co.jp/' },
+    { name: '龍角散', url: 'https://www.ryukakusan.co.jp/' },
+    { name: 'ロート製薬', url: 'https://www.rohto.co.jp/news/' },
+    { name: '和漢薬研究所', url: 'https://www.capony-wakanyaku.co.jp/' },
   ];
 
   for (const site of directSites) {
