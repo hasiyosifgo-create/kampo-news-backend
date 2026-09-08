@@ -96,6 +96,8 @@ async function fetchAINews() {
     '漢方', '生薬',
     'site:yakuji.co.jp 漢方', 'site:medical.nikkeibp.co.jp 漢方',
     'site:prtimes.jp 漢方', 'site:prtimes.jp 生薬',
+    'site:prtimes.jp ツムラ', 'site:prtimes.jp クラシエ',
+    'site:prtimes.jp 小太郎漢方', 'site:prtimes.jp 養命酒',
     'site:atpress.ne.jp 漢方', 'site:mhlw.go.jp 漢方',
     '漢方薬 新発売', '漢方薬 自主回収', '漢方薬 出荷調整',
     // 日本漢方生薬製剤協会 会員企業
@@ -147,14 +149,10 @@ async function fetchPharmaSitesViaRSS() {
   
   // 直接スクレイピングによる取得（Google Newsでヒットしないマイナー企業用）
   const directSites = [
-    { name: 'ツムラ', url: 'https://www.tsumura.co.jp/newsroom/' },
-    { name: 'クラシエ', url: 'https://www.kracie.co.jp/release/' },
     { name: '小太郎漢方', url: 'https://www.kotaro.co.jp/category/news_release/' },
     { name: 'イスクラ産業', url: 'https://www.iskra.co.jp/news/' },
-    { name: 'JPS漢方', url: 'https://www.jps-kampo.co.jp/' },
     { name: '三和生薬', url: 'https://www.sanwashoyaku.co.jp/' },
     { name: 'ホノミ漢方', url: 'https://www.zaiseido.co.jp/topics/' },
-    { name: '松浦薬業', url: 'https://www.matsuura-gp.co.jp/news/' }
   ];
 
   for (const site of directSites) {
@@ -298,13 +296,15 @@ async function runUpdateJob() {
 
     const uniqueItemsMap = new Map();
     for (const item of items) {
-      // 過去1ヶ月以内の記事のみ追加
-      if (!item.pubDate || new Date(item.pubDate).getTime() >= timeLimit) {
+      // 公式サイト直接取得の記事(isDirectScrape)はpubDateがなくても追加する
+      // Bing RSSの記事は当日0時以降のもののみ
+      const isNew = item.isDirectScrape || !item.pubDate || new Date(item.pubDate).getTime() >= timeLimit;
+      if (isNew) {
         if (!uniqueItemsMap.has(item.link)) {
           uniqueItemsMap.set(item.link, item);
         }
       } else {
-        console.log(`Skipping old article (older than 1 month): ${item.title}`);
+        console.log(`Skipping old article (older than time limit): ${item.title}`);
       }
     }
     const uniqueItems = Array.from(uniqueItemsMap.values());
@@ -388,8 +388,14 @@ async function runUpdateJob() {
             }
           }
           
+          // 公式サイト直接取得の記事は日付不明でも「今日」として保存する
+          if (!finalDate && item.isDirectScrape) {
+            finalDate = new Date();
+          }
+          
           // 日付が取得できなかった場合、またはtimeLimitより古い場合は破棄する
-          if (!finalDate || finalDate.getTime() < timeLimit) {
+          // ただしisDirectScrapeは除外（上で今日の日付を設定済み）
+          if (!finalDate || (!item.isDirectScrape && finalDate.getTime() < timeLimit)) {
             console.log(`Skipping old or undated article: ${item.title} (Date: ${finalDate ? finalDate.toISOString() : 'Unknown'})`);
             continue;
           }
