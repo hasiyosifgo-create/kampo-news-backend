@@ -634,56 +634,87 @@ ${inputText}
 }
 
 async function sendLineNotification(sinceTime) {
-  if (!process.env.LINE_CHANNEL_ACCESS_TOKEN || !process.env.LINE_USER_ID) return;
+  // メール通知に移行済みのため、こちらはメール送信を呼び出す
+  return sendEmailNotification(sinceTime);
+}
+
+async function sendEmailNotification(sinceTime) {
+  if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+    console.log('Gmail credentials not set. Skipping email notification.');
+    return;
+  }
   try {
-    const newArticles = await Article.find({ created_at: { $gte: sinceTime }, is_duplicate: false }).sort({ created_at: -1 }).lean();
+    const newArticles = await Article.find({ created_at: { $gte: sinceTime }, is_duplicate: { $ne: true } }).sort({ created_at: -1 }).lean();
     if (newArticles.length === 0) {
-      console.log('No new articles for LINE notification.');
+      console.log('No new articles for email notification.');
       return;
     }
-    
-    const appUrl = process.env.RENDER_EXTERNAL_URL || process.env.APP_URL || '';
-    let messageText = '📰 漢方ニュース: 新着 ' + newArticles.length + ' 件！\n\n';
-    
-    const newsArticles = newArticles.filter(a => (a.category || 'news') === 'news');
-    const productArticles = newArticles.filter(a => a.category === 'product');
 
-    const appendCategory = (title, items, limit = 5) => {
-      if (items.length > 0) {
-        messageText += `【${title}】\n`;
-        items.slice(0, limit).forEach(a => {
-          messageText += '・' + a.title + '\n';
-        });
-        if (items.length > limit) {
-          messageText += `...他 ${items.length - limit} 件\n`;
-        }
-        messageText += '\n';
-      }
-    };
-
-    appendCategory('ニュース', newsArticles, 5);
-    appendCategory('製品情報', productArticles, 5);
-    
-    messageText += '詳細はこちら👇\n' + appUrl;
-    
-    await axios.post('https://api.line.me/v2/bot/message/push', {
-      to: process.env.LINE_USER_ID,
-      messages: [{ type: 'text', text: messageText }]
-    }, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`
+    const nodemailer = require('nodemailer');
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.GMAIL_USER,
+        pass: process.env.GMAIL_APP_PASSWORD
       }
     });
-    console.log('Scheduled LINE notification sent successfully.');
+
+    const appUrl = process.env.APP_URL || '';
+    const newsArticles    = newArticles.filter(a => (a.category || 'news') === 'news');
+    const productArticles = newArticles.filter(a => a.category === 'product');
+
+    // HTMLメール本文を組み立て
+    const buildSection = (title, emoji, items, limit = 8) => {
+      if (items.length === 0) return '';
+      let html = `<h2 style="color:#2e6b3e;border-bottom:2px solid #2e6b3e;padding-bottom:6px;">${emoji} ${title}</h2><ul style="padding-left:16px;">`;
+      items.slice(0, limit).forEach(a => {
+        const displayTitle = (a.topic_name && a.topic_name !== '一般ニュース') ? a.topic_name : a.title;
+        const pub = a.published_at ? new Date(a.published_at).toLocaleDateString('ja-JP') : '';
+        html += `<li style="margin-bottom:10px;">
+          <a href="${a.url}" style="color:#1a56db;font-weight:bold;text-decoration:none;">${displayTitle}</a>
+          ${pub ? `<span style="color:#888;font-size:12px;margin-left:8px;">${pub}</span>` : ''}
+          ${a.summary ? `<p style="color:#444;font-size:13px;margin:4px 0 0 0;">${a.summary}</p>` : ''}
+        </li>`;
+      });
+      if (items.length > limit) {
+        html += `<li style="color:#888;">…他 ${items.length - limit} 件</li>`;
+      }
+      html += '</ul>';
+      return html;
+    };
+
+    const now = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+    const htmlBody = `
+<!DOCTYPE html>
+<html lang="ja">
+<head><meta charset="UTF-8"></head>
+<body style="font-family:'Helvetica Neue',Arial,sans-serif;max-width:640px;margin:0 auto;padding:20px;background:#f9f9f9;">
+  <div style="background:#fff;border-radius:12px;padding:24px;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+    <h1 style="color:#2e6b3e;margin-top:0;">📰 漢方ニュース 新着 ${newArticles.length} 件</h1>
+    <p style="color:#888;font-size:13px;">配信時刻: ${now}</p>
+    ${buildSection('ニュース', '📋', newsArticles)}
+    ${buildSection('製品情報', '💊', productArticles)}
+    ${appUrl ? `<div style="margin-top:24px;text-align:center;"><a href="${appUrl}" style="background:#2e6b3e;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:bold;">アプリで全件確認する →</a></div>` : ''}
+  </div>
+</body>
+</html>`;
+
+    await transporter.sendMail({
+      from: `"漢方ニュース" <${process.env.GMAIL_USER}>`,
+      to: process.env.NOTIFY_EMAIL || process.env.GMAIL_USER,
+      subject: `📰 漢方ニュース 新着${newArticles.length}件 (${now})`,
+      html: htmlBody
+    });
+    console.log('Email notification sent successfully.');
   } catch (err) {
-    console.error('Error sending scheduled LINE notification:', err.response ? err.response.data : err.message);
+    console.error('Error sending email notification:', err.message);
   }
 }
 
 module.exports = {
   runUpdateJob,
   sendLineNotification,
+  sendEmailNotification,
   getStatus,
   deduplicateRecentArticles
 };
