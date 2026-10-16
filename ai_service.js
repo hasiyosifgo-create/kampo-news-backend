@@ -67,12 +67,15 @@ function getModel() {
       responseSchema: {
         type: SchemaType.OBJECT,
         properties: {
+          is_relevant: { type: SchemaType.BOOLEAN },
+          relevance_reason: { type: SchemaType.STRING },
           summary: { type: SchemaType.STRING },
           tags: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
           topic_name: { type: SchemaType.STRING },
-          category: { type: SchemaType.STRING, enum: ['product', 'news'] }
+          category: { type: SchemaType.STRING, enum: ['product', 'news'] },
+          published_at: { type: SchemaType.STRING }
         },
-        required: ["summary", "tags", "topic_name", "category"]
+        required: ["is_relevant", "relevance_reason", "summary", "tags", "topic_name", "category"]
       }
     }
   });
@@ -99,22 +102,23 @@ let lastUpdateCount = 0;
 // 漢方・生薬ニュースを取得する（Bing News & Note RSS）
 async function fetchAINews() {
   const bingQueries = [
-    '漢方', '生薬',
+    '漢方', '生薬', '和漢薬',
+    // 薬事・行政・法規制・業界動向（薬機法や厚労省関連）
+    '漢方 薬機法', '漢方 厚生労働省', '生薬 薬価基準',
+    '漢方薬 ガイドライン', '漢方薬 添付文書改訂',
+    '漢方薬 自主回収', '漢方薬 出荷調整', '漢方薬 供給不足',
+    '日本漢方生薬製剤協会', '生薬 原料 栽培',
+    // 業界メディア・公的ソース
     'site:yakuji.co.jp 漢方', 'site:medical.nikkeibp.co.jp 漢方',
+    'site:mhlw.go.jp 漢方', 'site:pmda.go.jp 漢方',
     'site:prtimes.jp 漢方', 'site:prtimes.jp 生薬',
-    'site:prtimes.jp ツムラ', 'site:prtimes.jp クラシエ',
+    'site:prtimes.jp ツムラ', 'site:prtimes.jp クラシエ 漢方',
     'site:prtimes.jp 小太郎漢方', 'site:prtimes.jp 養命酒',
-    'site:atpress.ne.jp 漢方', 'site:mhlw.go.jp 漢方',
-    '漢方薬 新発売', '漢方薬 自主回収', '漢方薬 出荷調整',
-    // 日本漢方生薬製剤協会 会員企業
-    'アスゲン製薬', 'アリナミン製薬', 'アルプス薬品工業', 'イスクラ産業',
-    'ウチダ和漢薬', '大木製薬', '大草薬品', '大杉製薬', '太田胃散', '大峰堂薬品工業',
-    '北日本製薬', '救心製薬', 'クラシエ', '健創製薬', '皇漢薬品研究所',
-    '興和', '小太郎漢方', '小西製薬', '小林製薬', '剤盛堂薬品', '阪本漢法製薬',
-    '佐藤製薬', '三宝製薬', '三和生薬', 'JPS漢方', 'ゼリア新薬',
-    '全薬工業', '第一三共ヘルスケア', '大幸薬品', '大正製薬', '建林松鶴堂',
-    '常磐植物化学研究所', 'ツムラ', '栃本天海堂', '長野県製薬', '日本粉末薬品',
-    '本草製薬', '松浦薬業', '養命酒', '龍角散', 'ロート製薬', '和漢薬研究所'
+    // 主要漢方メーカーの専門ニュース
+    'ツムラ 漢方', 'クラシエ 漢方', '小太郎漢方製薬',
+    'ウチダ和漢薬', '三和生薬', '大杉製薬 漢方', '松浦薬業 漢方',
+    '栃本天海堂 生薬', '本草製薬 漢方', 'イスクラ産業 漢方',
+    '剤盛堂薬品 漢方', 'JPS製薬 漢方', '養命酒 生薬', 'ロート製薬 和漢'
   ];
   const results = [];
 
@@ -214,20 +218,40 @@ async function fetchPharmaSitesViaRSS() {
 
       let extractedCount = 0;
       for (const link of links) {
-        // ナビゲーション等の無関係なリンクを除外
-        const skipWords = ['プライバシー', '会社概要', '企業理念', '採用情報', 'お問い合わせ', 'サイトマップ', 'ホーム', 'English', '一覧', 'IR情報', 'サステナビリティ'];
-        if (link.text.length < 10 || skipWords.some(w => link.text.includes(w))) {
+        // ナビゲーションや静的カタログ等の無関係なリンクを除外
+        const skipWords = [
+          'プライバシー', '会社概要', '企業理念', '採用情報', 'お問い合わせ', 'サイトマップ',
+          'ホーム', 'English', '一覧', 'IR情報', 'サステナビリティ', '添付文書', '医療関係者',
+          'お求めの方', '製品情報', 'ラインナップ', 'オンラインショップ', '商品一覧', '検索',
+          '相談窓口', 'SDGs', '木曽再発見', 'アクセス制限', 'よくあるご質問', 'Q&A', '利用規約',
+          'リンク集', '特定商取引', 'ログイン', 'マイページ', 'カタログ', 'OEM受託', '周辺情報'
+        ];
+        if (link.text.length < 8 || skipWords.some(w => link.text.includes(w) || link.containerText.includes(w))) {
           continue;
         }
 
-        // 過去の日付（例: 2023.01）などが含まれる古いリンクをできるだけ除外
-        const dateMatch = link.containerText.match(/(20\d{2})[\/\.年](0?[1-9]|1[0-2])/);
-        let pubDateStr = '';
-        if (dateMatch) {
-          const year = parseInt(dateMatch[1], 10);
-          if (year < new Date().getFullYear() - 1) continue; // 1年以上前はスキップ
-          pubDateStr = `${dateMatch[1]}-${dateMatch[2].padStart(2, '0')}-01`;
+        // 静的カタログや製品検索ページなどのURLパターンを除外
+        const urlLower = link.href.toLowerCase();
+        if (urlLower.includes('/lineup/') || urlLower.includes('/product/') || 
+            urlLower.includes('/check.html') || urlLower.includes('search') || 
+            urlLower.includes('/shop') || urlLower.includes('/catalog')) {
+          continue;
         }
+
+        // 過去の日付（例: 2026.09.15）を抽出。日付が全く記載されていない静的リンクは除外
+        const dateMatch = link.containerText.match(/(20\d{2})[\/\.年](0?[1-9]|1[0-2])([\/\.月](0?[1-9]|[12]\d|3[01]))?/);
+        if (!dateMatch) {
+          // 日付が明記されていないリンクは固定ページやメニューの可能性が高いためスキップ
+          continue;
+        }
+
+        const year = parseInt(dateMatch[1], 10);
+        const currentYear = new Date().getFullYear();
+        if (year < currentYear - 1) continue; // 1年以上前はスキップ
+
+        const month = dateMatch[2].padStart(2, '0');
+        const day = dateMatch[4] ? dateMatch[4].padStart(2, '0') : '01';
+        const pubDateStr = `${year}-${month}-${day}`;
 
         if (extractedCount >= 5) break; // 各サイト最大5件まで
 
@@ -237,7 +261,7 @@ async function fetchPharmaSitesViaRSS() {
           pubDate: pubDateStr,
           category: 'product',
           contentSnippet: link.text,
-          isDirectScrape: true // 短いコンテンツのスキップ回避用
+          isDirectScrape: true
         });
         extractedCount++;
       }
@@ -255,8 +279,7 @@ async function processArticleWithGemini(articleText, title, category) {
   }
 
   const prompt = `
-以下の日本語のニュース記事（漢方や生薬に関するもの）を読んで、要約と情報を抽出してください。
-※本文全体の翻訳や出力は不要です。
+以下の記事を精査し、「漢方・生薬・和漢薬」または「製薬業界自体（薬機法、厚労省行政、法規制、ガイドライン、薬価、出荷調整、業界再編）」に関する重要ニュースであるかを厳正に吟味してください。
 
 【タイトル】
 ${title}
@@ -264,14 +287,30 @@ ${title}
 【本文】
 ${articleText}
 
-以下の要件を満たす情報をJSONフォーマットで出力してください。
-- category: この記事が特定の製品に関する「具体的なアクション・出来事（新発売、販売終了、自主回収、出荷調整、パッケージや成分の変更、添付文書の改訂など）」のニュースである場合は "product" を出力してください。（※注意：「添付文書の改訂」は重要な変更ニュースですが、単に既存製品の「添付文書をWebに掲載しました」といった案内や、製品の一般的なカタログ・説明ページなどは新たな出来事ではないため "news" または "UNRELATED" としてください。また、厚生労働省などの行政方針や制度変更（義務化など）のニュースは、特定の企業名が含まれていても "news" として扱ってください）。その他の一般的なニュース（業界動向、企業の決算、人事、一般的な医療コラムなど）の場合は "news" を出力してください。
-- summary: 記事の要約（3〜4文程度）。※もし記事が「漢方」「生薬」「東洋医学」に直接関連しないニュースや、個人の体験談・考察・Noteなどの「個人的なブログ記事」の場合は、必ず \`UNRELATED\` という文字列だけを出力して弾いてください。漢方薬や生薬に直接関わらない健康・美容成分の研究は弾いてください。（※ただし、「薬機法（医薬品医療機器等法）」や「漢方薬・生薬、およびサプリメント・健康食品等に関わる国の制度改定・義務化・ガイドライン」などの行政方針に関するニュースは業界全体に関わるため、UNRELATEDにせず必ず抽出してください。また「新年のご挨拶」や「社長・役員交代のご挨拶」といった時事的なご挨拶ニュースも抽出してください）。また、詐欺サイトやスパムと思われる場合も \`SPAM\` と出力してください。
-- tags: 
-  - categoryが "product" と判定された場合: 「アクション（発売、終了、回収、出荷、変更のいずれか）」と「対象の企業名（またはブランド名）」の2つのみを配列で出力。（例: ["発売", "クラシエ"]）
-  - categoryが "news" と判定された場合: 記事に関連する最も重要な漢方薬・生薬名、または企業名などのタグ（厳選して最大2つまで。例: ["葛根湯", "ツムラ"]）
-- topic_name: この記事が扱っている主要な「ニュースのトピック名」または「イベント名」を短い名詞句で出力（例: "〇〇湯の新発売", "ツムラの決算発表" 等）
-- published_at: このニュースが「世間に配信・公開された日」を "YYYY-MM-DD" 形式で出力（※注意：新商品の「発売日」などの未来の日付は絶対に出力せず、ニュース自体の発表日を抽出してください。不明な場合は空文字 "" にする）
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+【審査基準（is_relevant の判定ルール）】
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+■ 合格（is_relevant = true とする基準）:
+1. 漢方薬・生薬・和漢薬に関する具体的なニュース（新処方・新製品の発売、販売終了、自主回収、供給不足、出荷調整、栽培・原料調達、薬理研究など）
+2. 製薬業界全体および漢方・生薬に関わる法律・行政・制度動向（薬機法、添付文書改訂、薬価改定、厚労省方針、PMDA通達、日漢協の指針・声明など）
+3. 漢方製薬企業（ツムラ、クラシエ、小太郎漢方、三和生薬、ウチダ和漢薬など）の重要な経営、決算、業務提携、事業再編、生産設備投資
+
+■ 不合格（is_relevant = false として除外する基準）:
+1. 単なるウェブサイトの固定案内・カタログページ（製品一覧、成分カタログ、医療関係者向けアクセス確認画面、添付文書一覧、お問い合わせ案内、OEM受託案内など、新たなニュース・出来事ではないもの）
+2. 芸能人のCM出演、タレントの発表会・インタビュー、エンタメ・タブロイド記事
+3. 漢方・生薬に直接関わらない一般の医薬品・日用品・健康食品（目薬、ビタミン剤、一般の風邪薬、サプリメント一般、消臭剤など）
+4. 個人のブログ、体験談、アフィリエイト、Note、一般的な季節の健康・美容コラム
+5. 過去の古い記事の再掲載、または単なる神社の祭りなどの地域行事
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+【出力JSONフォーマット】
+- is_relevant: 上記審査基準に基づき、漢方・生薬・製薬業界（法律等）のニュースとして相応しい場合は true、不合格なら false
+- relevance_reason: 判定した理由（なぜ合格か、またはなぜ不合格か）を1文で明記
+- summary: is_relevant が true の場合、記事の要点を3〜4文で要約。false の場合は "UNRELATED"
+- category: 製品の具体的なアクション（新発売、販売終了、回収、出荷調整など）は "product"、法規制や業界動向・企業ニュースは "news"
+- tags: 主要な企業名または生薬・漢方名（最大2件、例: ["ツムラ", "出荷調整"]）
+- topic_name: 主要な出来事を示す簡潔な名詞句（例: "医療用漢方製剤の出荷調整", "薬機法改正に伴う規制見直し"）
+- published_at: ニュースが世間に発表・配信された日付を "YYYY-MM-DD" で抽出（本文やタイトルから明確に特定できる場合のみ。特定できない場合や未来の日付は ""）
 `;
 
   let maxRetries = FALLBACK_MODELS.length * 2;
@@ -320,15 +359,11 @@ async function runUpdateJob() {
     items.push(...pharmaItems);
 
     // DBの記事数を取得して足切りラインを動的に設定
+    // 週末や連休、前日夕方の発表も拾えるよう、直近3日間（72時間前）を足切りラインとする
     const dbArticleCount = await Article.countDocuments();
     let timeLimitDate = new Date();
-    if (dbArticleCount === 0) {
-      // DBが空の場合は直近7日間
-      timeLimitDate.setDate(timeLimitDate.getDate() - 7);
-    } else {
-      // 既に運用中の場合は当日の0時以降の最新記事のみ
-      timeLimitDate.setHours(0, 0, 0, 0);
-    }
+    timeLimitDate.setDate(timeLimitDate.getDate() - 3);
+    timeLimitDate.setHours(0, 0, 0, 0);
     const timeLimit = timeLimitDate.getTime();
     console.log(`Time Limit Set: ${timeLimitDate.toISOString()} (DB count: ${dbArticleCount})`);
 
@@ -408,20 +443,21 @@ async function runUpdateJob() {
         // Gemini APIの無料枠制限を確実に回避するため、1記事ごとに10秒待機する
         await new Promise(resolve => setTimeout(resolve, 10000));
         
-        // 無関係な記事（UNRELATED）やスパム（SPAM）はスキップ（全カテゴリ共通で弾く）
-        if (apiResult && apiResult.summary && (apiResult.summary.includes('UNRELATED') || apiResult.summary.includes('SPAM'))) {
-          console.log(`Skipping unrelated or spam article: ${item.title}`);
+        // 漢方・生薬・製薬法制に無関係な記事（is_relevant === false）やスパムは確実に弾く
+        if (!apiResult || !apiResult.is_relevant || (apiResult.summary && (apiResult.summary.includes('UNRELATED') || apiResult.summary.includes('SPAM')))) {
+          console.log(`[除外] 業界無関係または不適合な記事をスキップ: ${item.title}`);
+          console.log(`       理由: ${apiResult?.relevance_reason || '不合格判定'}`);
           continue;
         }
 
         if (apiResult) {
-          // 日付は RSS の pubDate を最優先（未来の発売日などによる上書きを防ぐ）
+          // 日付は RSS の pubDate またはリンクから抽出した日付を最優先
           let finalDate = null;
           if (item.pubDate) {
             const parsedPubDate = new Date(item.pubDate);
             if (!isNaN(parsedPubDate.getTime())) finalDate = parsedPubDate;
           }
-          // pubDate が無い、またはパースに失敗した場合で AI が日付を抽出した場合
+          // pubDate が無い、またはパースに失敗した場合で AI が本文から日付を抽出した場合
           if (!finalDate && apiResult.published_at && apiResult.published_at !== "") {
             const parsedAiDate = new Date(apiResult.published_at);
             // 未来の日付の場合は除外（フェイルセーフ）
@@ -430,15 +466,9 @@ async function runUpdateJob() {
             }
           }
           
-          // 公式サイト直接取得の記事は日付不明でも「今日」として保存する
-          if (!finalDate && item.isDirectScrape) {
-            finalDate = new Date();
-          }
-          
-          // 日付が取得できなかった場合、またはtimeLimitより古い場合は破棄する
-          // ただしisDirectScrapeは除外（上で今日の日付を設定済み）
-          if (!finalDate || (!item.isDirectScrape && finalDate.getTime() < timeLimit)) {
-            console.log(`Skipping old or undated article: ${item.title} (Date: ${finalDate ? finalDate.toISOString() : 'Unknown'})`);
+          // 日付が全く特定できない記事、または足切りラインより古い記事は破棄（固定ページや古い記事の最新誤認を防止）
+          if (!finalDate || finalDate.getTime() < timeLimit) {
+            console.log(`[除外] 古い記事または日付特定不可のため破棄: ${item.title} (判定日: ${finalDate ? finalDate.toISOString().split('T')[0] : '日付なし'})`);
             continue;
           }
 
@@ -452,7 +482,8 @@ async function runUpdateJob() {
             tags: JSON.stringify(apiResult.tags || []),
             translated_content: contentToProcess,
             topic_name: apiResult.topic_name || '',
-            category: apiResult.category || item.category || 'news'
+            category: apiResult.category || item.category || 'news',
+            relevance_reason: apiResult.relevance_reason || ''
           });
           newArticleIds.push(newDoc._id);
           processedCount++;

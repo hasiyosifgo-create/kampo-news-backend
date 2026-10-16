@@ -30,10 +30,12 @@ async function checkScheduledNotifications() {
     let targetHour = -1;
     let sinceHours = 6;
     
-    // 18時以降なら18時の通知、12時以降なら12時の通知、6時以降なら6時の通知
+    // 18時以降なら18時の通知（直近6時間分）
+    // 12時以降なら12時の通知（直近6時間分）
+    // 6時以降なら6時の通知（前日18時からの夜間を含む直近12時間分）
     if (jstHour >= 18) { targetHour = 18; sinceHours = 6; }
     else if (jstHour >= 12) { targetHour = 12; sinceHours = 6; }
-    else if (jstHour >= 6)  { targetHour = 6;  sinceHours = 6; }
+    else if (jstHour >= 6)  { targetHour = 6;  sinceHours = 12; }
     
     if (targetHour !== -1) {
       // 日付文字列 (例: "2026-07-12") と targetHour を組み合わせて一意のIDを作成
