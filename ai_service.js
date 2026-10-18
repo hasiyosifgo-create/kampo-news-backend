@@ -43,18 +43,11 @@ async function fetchHtmlWithEncoding(url, options = {}) {
 
 
 const FALLBACK_MODELS = [
-  // 上限が大きいモデル（安定して使えるもの）
-  "gemini-3.1-flash-lite",    // RPD 500
-  "gemma-4-31b-it",           // RPD 1500
-  "gemma-4-26b-a4b-it",       // RPD 1500
-  // 上限が小さいモデル（RPD 20）
+  "gemini-3.1-flash-lite",
   "gemini-3.5-flash",
-  "gemini-3-flash",
-  "gemini-2.5-flash",
-  "gemini-2.5-flash-lite",
-  // 最新の自動割当モデル
+  "gemini-3.5-flash-lite",
   "gemini-flash-latest",
-  "gemini-flash-lite-latest"
+  "gemini-2.5-flash"
 ];
 let currentModelIndex = 0;
 
@@ -148,6 +141,32 @@ async function fetchAINews() {
       }));
     } catch (e) {
       console.warn('Bing RSS parse error:', e.message);
+    }
+  }
+
+  // Google News RSS（漢方・生薬・製薬メーカー関連の高鮮度ニュース）
+  const googleQueries = [
+    '漢方 OR 生薬',
+    'ツムラ OR クラシエ OR 小太郎漢方',
+    '漢方薬 出荷調整 OR 漢方薬 供給',
+    '薬事日報 漢方 OR 日本経済新聞 漢方',
+    '日漢協 OR 生薬 栽培'
+  ];
+
+  for (const gq of googleQueries) {
+    try {
+      const gUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(gq)}&hl=ja&gl=JP&ceid=JP:ja`;
+      const gFeed = await parser.parseURL(gUrl);
+      results.push(...gFeed.items.slice(0, 30).map(item => ({
+        title: item.title,
+        link: item.link,
+        pubDate: item.pubDate,
+        contentSnippet: item.contentSnippet || item.content,
+        category: 'news',
+        isDirectScrape: false
+      })));
+    } catch (e) {
+      console.warn('Google News RSS parse error:', e.message);
     }
   }
 
@@ -327,13 +346,14 @@ ${articleText}
         currentModelIndex = (currentModelIndex + 1) % FALLBACK_MODELS.length;
         await new Promise(resolve => setTimeout(resolve, 3000)); // 3秒待機して再試行
       } else {
-        console.error('Gemini API Error:', error.message);
-        throw error;
+        console.warn(`Gemini API Error with ${FALLBACK_MODELS[currentModelIndex]}:`, error.message);
+        currentModelIndex = (currentModelIndex + 1) % FALLBACK_MODELS.length;
+        await new Promise(resolve => setTimeout(resolve, 2000));
       }
     }
     attempts++;
   }
-  throw new Error("All models exhausted or failed due to rate limits.");
+  return null; // 全モデルで失敗した場合は例外でジョブを止めずにnullを返して次の記事へ進む
 }
 
 // 全体のフロー: 取得 -> 未保存の記事を抽出 -> AI処理 -> DB保存
@@ -747,5 +767,6 @@ module.exports = {
   sendLineNotification,
   sendEmailNotification,
   getStatus,
-  deduplicateRecentArticles
+  deduplicateRecentArticles,
+  fetchAINews
 };
